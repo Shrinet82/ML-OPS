@@ -13,6 +13,7 @@
 ## 📑 Table of Contents
 
 - [Overview](#-overview)
+- [Screenshots](#-screenshots)
 - [Architecture](#-architecture)
 - [Quick Start](#-quick-start)
 - [Infrastructure Setup](#-infrastructure-setup)
@@ -23,6 +24,34 @@
 - [Testing](#-testing)
 - [Troubleshooting](#-troubleshooting)
 - [Project Structure](#-project-structure)
+
+---
+
+## 📸 Screenshots
+
+### Grafana Monitoring Dashboard
+
+Real-time data drift detection with Prometheus metrics:
+
+![Grafana Dashboard](docs/screenshots/grafana_dashboard.png)
+
+### Kubernetes Pods Status
+
+All services running across namespaces (ml-credit-risk, kubeflow, kserve):
+
+![Kubectl Pods](docs/screenshots/kubectl_pods.png)
+
+### Live Model Prediction
+
+KServe InferenceService returning real-time credit risk predictions:
+
+![KServe Prediction](docs/screenshots/kserve_prediction.png)
+
+### Load Test Simulation
+
+End-to-end simulation with 100% success rate at 1.76 req/s:
+
+![Simulation Results](docs/screenshots/simulation_results.png)
 
 ---
 
@@ -667,4 +696,3 @@ MIT License
 ---
 
 **Created**: January 2026 | **Author**: Shashwat Pratap Singh
-
