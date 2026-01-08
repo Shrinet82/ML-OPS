@@ -666,4 +666,5 @@ MIT License
 
 ---
 
-**Created**: January 2026 | **Author**: MLOps Team
+**Created**: January 2026 | **Author**: Shashwat Pratap Singh
+
