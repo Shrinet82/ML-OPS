@@ -14,6 +14,7 @@
 
 - [Overview](#-overview)
 - [Screenshots](#-screenshots)
+- [Dashboard](#-dashboard)
 - [Architecture](#-architecture)
 - [Quick Start](#-quick-start)
 - [Infrastructure Setup](#-infrastructure-setup)
@@ -52,6 +53,66 @@ KServe InferenceService returning real-time credit risk predictions:
 End-to-end simulation with 100% success rate at 1.76 req/s:
 
 ![Simulation Results](docs/screenshots/simulation_results.png)
+
+---
+
+## 🖥️ Dashboard
+
+A **Streamlit-based web dashboard** deployed on Kubernetes for interactive credit risk prediction.
+
+### Dashboard Screenshots
+
+**Overview Tab** - System metrics and interactive architecture diagram:
+
+![Dashboard Overview](docs/screenshots/dashboard_overview.png)
+
+**Live Predictions Tab** - Real-time predictions via KServe:
+
+![Dashboard Predictions](docs/screenshots/dashboard_predictions.png)
+
+**Infrastructure Tab** - Kubernetes namespaces and pod status:
+
+![Dashboard Infrastructure](docs/screenshots/dashboard_infrastructure.png)
+
+### Dashboard Features
+
+| Tab                     | Features                                                |
+| ----------------------- | ------------------------------------------------------- |
+| **📊 Overview**         | System metrics, interactive architecture diagram        |
+| **🔮 Live Predictions** | Customer input form, real KServe API calls, gauge chart |
+| **📈 Model Insights**   | Feature importance, ROC curve, metrics                  |
+| **🖥️ Infrastructure**   | Pod status cards, namespace overview                    |
+
+### Running the Dashboard
+
+```bash
+# Deploy to Kubernetes
+kubectl apply -f infra/dashboard.yaml
+
+# Access locally via port-forward
+kubectl port-forward svc/mlops-dashboard -n ml-credit-risk 8501:80
+
+# Open http://localhost:8501
+```
+
+### Dashboard Code
+
+The dashboard is located in [`dashboard/`](./dashboard/):
+
+```
+dashboard/
+├── app.py              # Streamlit application (400+ lines)
+├── Dockerfile          # Container image definition
+└── requirements.txt    # Python dependencies
+```
+
+**Key files:**
+
+- [app.py](./dashboard/app.py) - Main Streamlit application with 4 tabs
+- [Dockerfile](./dashboard/Dockerfile) - Containerization for K8s deployment
+- [dashboard.yaml](./infra/dashboard.yaml) - Kubernetes Deployment & Service
+
+**Docker Image:** `shrinet82/mlops-dashboard:latest`
 
 ---
 
