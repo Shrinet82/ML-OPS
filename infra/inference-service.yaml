@@ -1,0 +1,14 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: credit-risk-model
+  namespace: ml-credit-risk
+  annotations:
+    serving.kserve.io/deploymentMode: "RawDeployment"
+spec:
+  predictor:
+    serviceAccountName: kserve-sa
+    minReplicas: 1
+    maxReplicas: 3
+    xgboost:
+      storageUri: s3://models/credit-risk/

@@ -1,0 +1,17 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: credit-risk-ingress
+  namespace: ml-credit-risk
+spec:
+  rules:
+    - host: credit-risk.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: credit-risk-model-predictor
+                port:
+                  number: 80

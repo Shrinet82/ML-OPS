@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: credit-risk-monitor
+  namespace: monitoring
+  labels:
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - ml-credit-risk
+  selector:
+    matchLabels:
+      app: monitoring-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

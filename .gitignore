@@ -1,0 +1,47 @@
+# Ignore virtual environment
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# MLflow
+mlruns/
+mlflow.db
+
+# Model artifacts (keep structure, ignore large files)
+*.pkl
+models/*.json
+!models/feature_names.txt
+
+# Data files (kept in DVC)
+data/*.csv
+data/*.xls
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+*.log

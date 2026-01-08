@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: monitoring-service
+  namespace: ml-credit-risk
+  labels:
+    app: monitoring-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: monitoring-service
+  template:
+    metadata:
+      labels:
+        app: monitoring-service
+    spec:
+      containers:
+        - name: monitoring
+          image: python:3.10-slim
+          command: ["python", "/app/src/metrics_server.py"]
+          ports:
+            - containerPort: 8000
+              name: http
+          volumeMounts:
+            - name: script-volume
+              mountPath: /app/src
+      volumes:
+        - name: script-volume
+          configMap:
+            name: monitoring-script
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: monitoring-service
+  namespace: ml-credit-risk
+  labels:
+    app: monitoring-service
+spec:
+  selector:
+    app: monitoring-service
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
+      name: http
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: monitoring-service-monitor
+  namespace: ml-credit-risk
+  labels:
+    release: monitoring # Important for Prometheus Operator to pick it up usually
+spec:
+  selector:
+    matchLabels:
+      app: monitoring-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

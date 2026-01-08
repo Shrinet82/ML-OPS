@@ -1,0 +1,22 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install dependencies first (for caching)
+RUN pip install --no-cache-dir \
+    fastapi \
+    uvicorn \
+    prometheus-client \
+    pandas \
+    numpy \
+    evidently \
+    "protobuf>=3.20,<4"
+
+# Copy the application code
+COPY src/monitoring_service.py /app/monitoring_service.py
+
+# Expose metrics port
+EXPOSE 8000
+
+# Run the service
+CMD ["python", "monitoring_service.py"]
