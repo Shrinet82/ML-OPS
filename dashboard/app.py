@@ -164,7 +164,82 @@ with tab1:
     
     st.markdown("---")
     st.markdown("### 🏗️ System Architecture")
-    st.image("https://raw.githubusercontent.com/Shrinet82/ML-OPS/main/docs/screenshots/grafana_dashboard.png")
+    
+    # Create architecture diagram with Plotly
+    fig = go.Figure()
+    
+    # Define component positions
+    components = {
+        "👤 User": (0, 2),
+        "🌐 Dashboard": (1.5, 2),
+        "🚀 KServe": (3, 2),
+        "🤖 XGBoost Model": (4.5, 2),
+        "📊 Prometheus": (3, 0.5),
+        "📈 Grafana": (4.5, 0.5),
+        "🔧 Kubeflow": (1.5, 0.5),
+        "📦 Minio": (0, 0.5),
+    }
+    
+    # Add nodes
+    colors = ['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe', '#00f2fe', '#43e97b', '#38f9d7']
+    for i, (name, (x, y)) in enumerate(components.items()):
+        fig.add_trace(go.Scatter(
+            x=[x], y=[y],
+            mode='markers+text',
+            marker=dict(size=60, color=colors[i % len(colors)], symbol='circle'),
+            text=[name],
+            textposition='top center',
+            textfont=dict(size=12),
+            hoverinfo='text',
+            showlegend=False
+        ))
+    
+    # Add edges (arrows)
+    edges = [
+        (0, 1.5, 2, 2),      # User -> Dashboard
+        (1.5, 3, 2, 2),      # Dashboard -> KServe
+        (3, 4.5, 2, 2),      # KServe -> Model
+        (4.5, 3, 2, 0.5),    # Model -> Prometheus (metrics)
+        (3, 4.5, 0.5, 0.5),  # Prometheus -> Grafana
+        (1.5, 0, 0.5, 0.5),  # Kubeflow -> Minio
+    ]
+    
+    for x0, x1, y0, y1 in edges:
+        fig.add_trace(go.Scatter(
+            x=[x0, x1], y=[y0, y1],
+            mode='lines',
+            line=dict(color='rgba(100,100,100,0.5)', width=2),
+            showlegend=False
+        ))
+    
+    fig.update_layout(
+        height=350,
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-0.5, 5]),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-0.2, 2.8]),
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        margin=dict(l=20, r=20, t=20, b=20)
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Add data flow description
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("""
+        **🔄 Request Flow:**
+        1. User enters data in Dashboard
+        2. Dashboard calls KServe endpoint
+        3. XGBoost model returns prediction
+        4. Result displayed with risk score
+        """)
+    with col2:
+        st.markdown("""
+        **📊 Monitoring Flow:**
+        - Metrics scraped by Prometheus
+        - Visualized in Grafana dashboards
+        - Drift detection alerts enabled
+        """)
 
 # ==================== TAB 2: LIVE PREDICTIONS ====================
 with tab2:
