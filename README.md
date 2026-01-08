@@ -40,7 +40,7 @@ Credit card default prediction is critical for financial institutions. This plat
 ### Dataset
 
 - **Source**: [UCI ML Repository - Taiwan Credit Card Default](https://archive.ics.uci.edu/ml/datasets/default+of+credit+card+clients)
-- **Size**: 30,000 samples, 23 features
+- **Size**: 300,000 samples, 23 features
 - **Target**: Binary classification (default vs. non-default)
 
 ### Model Performance
