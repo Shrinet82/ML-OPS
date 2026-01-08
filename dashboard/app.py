@@ -1,6 +1,6 @@
 """
 Credit Risk MLOps Dashboard
-Deployed on Kubernetes - Showcases the entire MLOps infrastructure
+Deployed on Kubernetes - Makes REAL predictions via KServe
 """
 
 import streamlit as st
@@ -9,9 +9,14 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from PIL import Image
-import subprocess
 import json
+import os
+
+# KServe endpoint (internal cluster DNS)
+KSERVE_URL = os.environ.get(
+    "KSERVE_URL", 
+    "http://credit-risk-model-predictor.ml-credit-risk.svc.cluster.local/v1/models/credit-risk-model:predict"
+)
 
 # Page config
 st.set_page_config(
@@ -21,7 +26,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better aesthetics
+# Custom CSS
 st.markdown("""
 <style>
     .main-header {
@@ -33,49 +38,121 @@ st.markdown("""
         text-align: center;
         padding: 1rem;
     }
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1.5rem;
-        border-radius: 1rem;
-        color: white;
-        text-align: center;
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 2rem;
-    }
-    .stTabs [data-baseweb="tab"] {
-        padding: 1rem 2rem;
-        font-size: 1.1rem;
-    }
 </style>
 """, unsafe_allow_html=True)
 
+def engineer_features(data):
+    """Apply feature engineering transformations - SAME as training"""
+    df = pd.DataFrame([data])
+    
+    pay_cols = ['PAY_0', 'PAY_2', 'PAY_3', 'PAY_4', 'PAY_5', 'PAY_6']
+    bill_cols = ['BILL_AMT1', 'BILL_AMT2', 'BILL_AMT3', 'BILL_AMT4', 'BILL_AMT5', 'BILL_AMT6']
+    amt_cols = ['PAY_AMT1', 'PAY_AMT2', 'PAY_AMT3', 'PAY_AMT4', 'PAY_AMT5', 'PAY_AMT6']
+    
+    # Payment behavior features
+    df['LATE_PAYMENTS'] = (df[pay_cols] > 0).sum(axis=1)
+    df['MAX_DELAY'] = df[pay_cols].max(axis=1)
+    df['AVG_DELAY'] = df[pay_cols].mean(axis=1)
+    df['SEVERE_DELAY'] = (df[pay_cols] >= 2).sum(axis=1)
+    df['EVER_2MONTH_LATE'] = (df[pay_cols] >= 2).any(axis=1).astype(int)
+    df['RECENT_DELAY_WEIGHTED'] = df['PAY_0'] * 3 + df['PAY_2'] * 2 + df['PAY_3']
+    
+    # Aggregates
+    df['AVG_BILL_AMT'] = df[bill_cols].mean(axis=1)
+    df['AVG_PAY_AMT'] = df[amt_cols].mean(axis=1)
+    df['TOTAL_BILL'] = df[bill_cols].sum(axis=1)
+    df['TOTAL_PAY'] = df[amt_cols].sum(axis=1)
+    
+    # Ratios
+    df['UTILIZATION'] = df['BILL_AMT1'] / (df['LIMIT_BAL'] + 1)
+    df['AVG_UTILIZATION'] = df['AVG_BILL_AMT'] / (df['LIMIT_BAL'] + 1)
+    df['PAY_RATIO'] = df['TOTAL_PAY'] / (df['TOTAL_BILL'] + 1)
+    df['RECENT_PAY_RATIO'] = df['PAY_AMT1'] / (df['BILL_AMT1'] + 1)
+    
+    # Trends
+    df['BILL_TREND'] = df['BILL_AMT1'] - df['BILL_AMT6']
+    df['PAY_TREND'] = df['PAY_AMT1'] - df['PAY_AMT6']
+    df['INCREASING_DEBT'] = (df['BILL_TREND'] > 0).astype(int)
+    
+    # Interactions
+    df['LIMIT_AGE'] = df['LIMIT_BAL'] / df['AGE']
+    df['DELAY_UTIL'] = df['AVG_DELAY'] * df['AVG_UTILIZATION']
+    
+    # Categorical
+    df['HIGH_EDUCATION'] = (df['EDUCATION'] <= 2).astype(int)
+    df['SINGLE'] = (df['MARRIAGE'] == 2).astype(int)
+    
+    # Handle infinity
+    df = df.replace([np.inf, -np.inf], 0)
+    df = df.fillna(0)
+    
+    return df
+
+# Expected feature order (must match training)
+FEATURE_NAMES = [
+    'LIMIT_BAL', 'SEX', 'EDUCATION', 'MARRIAGE', 'AGE',
+    'PAY_0', 'PAY_2', 'PAY_3', 'PAY_4', 'PAY_5', 'PAY_6',
+    'BILL_AMT1', 'BILL_AMT2', 'BILL_AMT3', 'BILL_AMT4', 'BILL_AMT5', 'BILL_AMT6',
+    'PAY_AMT1', 'PAY_AMT2', 'PAY_AMT3', 'PAY_AMT4', 'PAY_AMT5', 'PAY_AMT6',
+    'LATE_PAYMENTS', 'MAX_DELAY', 'AVG_DELAY', 'SEVERE_DELAY',
+    'EVER_2MONTH_LATE', 'RECENT_DELAY_WEIGHTED',
+    'AVG_BILL_AMT', 'AVG_PAY_AMT', 'TOTAL_BILL', 'TOTAL_PAY',
+    'UTILIZATION', 'AVG_UTILIZATION', 'PAY_RATIO', 'RECENT_PAY_RATIO',
+    'BILL_TREND', 'PAY_TREND', 'INCREASING_DEBT',
+    'LIMIT_AGE', 'DELAY_UTIL', 'HIGH_EDUCATION', 'SINGLE'
+]
+
+def get_prediction(customer_data):
+    """Make real prediction call to KServe"""
+    try:
+        # Apply feature engineering
+        df = engineer_features(customer_data)
+        
+        # Select features in correct order
+        features = df[FEATURE_NAMES].values.tolist()
+        
+        # Call KServe
+        payload = {"instances": features}
+        response = requests.post(
+            KSERVE_URL,
+            json=payload,
+            headers={"Host": "credit-risk.local"},
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            return result["predictions"][0], None
+        else:
+            return None, f"Error: {response.status_code} - {response.text}"
+    except Exception as e:
+        return None, str(e)
+
 # Sidebar
 with st.sidebar:
-    st.image("https://raw.githubusercontent.com/Shrinet82/ML-OPS/main/docs/screenshots/grafana_dashboard.png", width=250)
-    st.markdown("---")
     st.markdown("### 🏦 Credit Risk MLOps")
     st.markdown("Production-grade ML pipeline on Kubernetes")
+    st.markdown("---")
+    st.markdown("**KServe Endpoint:**")
+    st.code(KSERVE_URL[:50] + "...", language=None)
     st.markdown("---")
     st.markdown("**Tech Stack:**")
     st.markdown("- 🔧 Kubeflow Pipelines")
     st.markdown("- 🚀 KServe")
     st.markdown("- 📊 Prometheus + Grafana")
-    st.markdown("- 🐳 Kubernetes (K3s)")
 
 # Header
 st.markdown('<h1 class="main-header">🏦 Credit Risk MLOps Platform</h1>', unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: gray;'>Production ML Pipeline for Credit Card Default Prediction</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: gray;'>Real-Time Credit Risk Predictions via KServe</p>", unsafe_allow_html=True)
 
 # Tabs
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "🔮 Predictions", "📈 Model Insights", "🖥️ Infrastructure"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "🔮 Live Predictions", "📈 Model Insights", "🖥️ Infrastructure"])
 
 # ==================== TAB 1: OVERVIEW ====================
 with tab1:
     st.markdown("## System Overview")
     
     col1, col2, col3, col4 = st.columns(4)
-    
     with col1:
         st.metric(label="🎯 Model AUC", value="0.78", delta="Above baseline")
     with col2:
@@ -86,216 +163,152 @@ with tab1:
         st.metric(label="🔄 Replicas", value="1-3", delta="Auto-scaling")
     
     st.markdown("---")
-    
-    # Architecture diagram (Mermaid-style visualization)
     st.markdown("### 🏗️ System Architecture")
-    
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        # Create a simple architecture visualization with Plotly
-        fig = go.Figure()
-        
-        # Add nodes
-        nodes = [
-            ("User", 0, 3), ("KServe", 2, 3), ("XGBoost", 4, 3),
-            ("Kubeflow", 2, 1), ("MLflow", 4, 1), ("Minio", 3, 0),
-            ("Prometheus", 6, 2), ("Grafana", 8, 2)
-        ]
-        
-        for name, x, y in nodes:
-            fig.add_trace(go.Scatter(
-                x=[x], y=[y], mode='markers+text',
-                marker=dict(size=50, color=['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe', '#00f2fe', '#43e97b', '#38f9d7'][nodes.index((name, x, y))]),
-                text=[name], textposition='top center',
-                name=name
-            ))
-        
-        # Add edges
-        edges = [
-            (0, 2, 3, 3), (2, 4, 3, 3),  # User -> KServe -> XGBoost
-            (2, 3, 1, 0), (4, 3, 1, 0),  # Kubeflow/MLflow -> Minio
-            (4, 6, 3, 2), (6, 8, 2, 2)   # XGBoost -> Prometheus -> Grafana
-        ]
-        
-        for x0, x1, y0, y1 in edges:
-            fig.add_trace(go.Scatter(
-                x=[x0, x1], y=[y0, y1], mode='lines',
-                line=dict(color='gray', width=2),
-                showlegend=False
-            ))
-        
-        fig.update_layout(
-            showlegend=False,
-            height=400,
-            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)'
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        st.markdown("#### Components")
-        st.markdown("""
-        | Component | Status |
-        |-----------|--------|
-        | KServe | ✅ Running |
-        | Kubeflow | ✅ Running |
-        | Prometheus | ✅ Running |
-        | Grafana | ✅ Running |
-        | Minio | ✅ Running |
-        """)
+    st.image("https://raw.githubusercontent.com/Shrinet82/ML-OPS/main/docs/screenshots/grafana_dashboard.png")
 
-# ==================== TAB 2: PREDICTIONS ====================
+# ==================== TAB 2: LIVE PREDICTIONS ====================
 with tab2:
     st.markdown("## 🔮 Real-Time Credit Risk Prediction")
-    st.markdown("Enter customer details to get instant default probability prediction")
+    st.markdown("Enter customer details to get **live predictions** from KServe InferenceService")
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.markdown("### 👤 Customer Profile")
+        st.markdown("### 👤 Demographics")
         limit_bal = st.slider("Credit Limit ($)", 10000, 500000, 50000, 10000)
         age = st.slider("Age", 21, 70, 35)
-        education = st.selectbox("Education", ["Graduate School", "University", "High School", "Other"])
-        marriage = st.selectbox("Marital Status", ["Married", "Single", "Other"])
+        sex = st.selectbox("Sex", [1, 2], format_func=lambda x: "Male" if x == 1 else "Female")
+        education = st.selectbox("Education", [1, 2, 3, 4], 
+                                 format_func=lambda x: ["", "Graduate School", "University", "High School", "Other"][x])
+        marriage = st.selectbox("Marital Status", [1, 2, 3],
+                               format_func=lambda x: ["", "Married", "Single", "Other"][x])
         
     with col2:
         st.markdown("### 💳 Payment History")
-        pay_0 = st.selectbox("Last Month Payment Status", [-2, -1, 0, 1, 2, 3, 4, 5], index=2, 
+        pay_0 = st.selectbox("Last Month", [-2, -1, 0, 1, 2, 3, 4, 5], index=2, 
                              format_func=lambda x: "On time" if x <= 0 else f"{x} months late")
         pay_2 = st.selectbox("2 Months Ago", [-2, -1, 0, 1, 2, 3], index=2,
                              format_func=lambda x: "On time" if x <= 0 else f"{x} months late")
-        bill_amt1 = st.number_input("Current Bill Amount ($)", 0, 100000, 20000)
-        pay_amt1 = st.number_input("Last Payment Amount ($)", 0, 50000, 2000)
+        pay_3 = st.selectbox("3 Months Ago", [-2, -1, 0, 1, 2], index=2,
+                             format_func=lambda x: "On time" if x <= 0 else f"{x} months late")
+        pay_4 = st.slider("4 Months Ago", -2, 3, 0)
+        pay_5 = st.slider("5 Months Ago", -2, 3, 0)
+        pay_6 = st.slider("6 Months Ago", -2, 3, 0)
+        
+    with col3:
+        st.markdown("### 💰 Bill & Payment Amounts")
+        bill_amt1 = st.number_input("Current Bill ($)", 0, 200000, 20000, 1000)
+        bill_amt2 = st.number_input("Bill 2 Months ($)", 0, 200000, 19000, 1000)
+        bill_amt3 = st.number_input("Bill 3 Months ($)", 0, 200000, 18000, 1000)
+        pay_amt1 = st.number_input("Last Payment ($)", 0, 100000, 2000, 500)
+        pay_amt2 = st.number_input("Payment 2 Mo ($)", 0, 100000, 1800, 500)
+        pay_amt3 = st.number_input("Payment 3 Mo ($)", 0, 100000, 1600, 500)
     
-    if st.button("🔮 Get Prediction", type="primary", use_container_width=True):
-        # Prepare data for prediction (simplified)
+    # Build customer data dict
+    customer_data = {
+        'LIMIT_BAL': limit_bal, 'SEX': sex, 'EDUCATION': education, 
+        'MARRIAGE': marriage, 'AGE': age,
+        'PAY_0': pay_0, 'PAY_2': pay_2, 'PAY_3': pay_3, 
+        'PAY_4': pay_4, 'PAY_5': pay_5, 'PAY_6': pay_6,
+        'BILL_AMT1': bill_amt1, 'BILL_AMT2': bill_amt2, 'BILL_AMT3': bill_amt3,
+        'BILL_AMT4': int(bill_amt3 * 0.9), 'BILL_AMT5': int(bill_amt3 * 0.8), 'BILL_AMT6': int(bill_amt3 * 0.7),
+        'PAY_AMT1': pay_amt1, 'PAY_AMT2': pay_amt2, 'PAY_AMT3': pay_amt3,
+        'PAY_AMT4': int(pay_amt3 * 0.9), 'PAY_AMT5': int(pay_amt3 * 0.8), 'PAY_AMT6': int(pay_amt3 * 0.7)
+    }
+    
+    st.markdown("---")
+    
+    if st.button("🔮 Get Live Prediction", type="primary", use_container_width=True):
         with st.spinner("Calling KServe InferenceService..."):
+            prediction, error = get_prediction(customer_data)
+        
+        if error:
+            st.error(f"Prediction failed: {error}")
+            st.info("Falling back to local estimation...")
             
-            # Simulated prediction (since we're in cluster, we'd call the actual service)
-            # In real deployment, this would call: http://credit-risk-model-predictor.ml-credit-risk/v1/models/credit-risk-model:predict
-            
-            # Simulate based on input
+            # Fallback calculation
             risk_score = 0.15
-            if pay_0 > 1:
-                risk_score += 0.25
-            if pay_2 > 0:
-                risk_score += 0.1
-            if limit_bal < 30000:
-                risk_score += 0.1
-            if bill_amt1 / (limit_bal + 1) > 0.8:
-                risk_score += 0.15
-            
-            risk_score = min(risk_score, 0.95)
-            
+            if pay_0 > 1: risk_score += 0.25
+            if pay_2 > 0: risk_score += 0.1
+            if limit_bal < 30000: risk_score += 0.1
+            if bill_amt1 / (limit_bal + 1) > 0.8: risk_score += 0.15
+            prediction = min(risk_score, 0.95)
+        
         # Display result
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            if risk_score > 0.5:
+            if prediction > 0.5:
                 st.error(f"### ⚠️ HIGH RISK")
-                st.markdown(f"<h1 style='text-align: center; color: red;'>{risk_score:.1%}</h1>", unsafe_allow_html=True)
-                st.markdown("<p style='text-align: center;'>Default Probability</p>", unsafe_allow_html=True)
             else:
                 st.success(f"### ✅ LOW RISK")
-                st.markdown(f"<h1 style='text-align: center; color: green;'>{risk_score:.1%}</h1>", unsafe_allow_html=True)
-                st.markdown("<p style='text-align: center;'>Default Probability</p>", unsafe_allow_html=True)
+            
+            st.markdown(f"<h1 style='text-align: center;'>{prediction:.1%}</h1>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center;'>Default Probability</p>", unsafe_allow_html=True)
         
-        # Show gauge chart
+        # Gauge chart
         fig = go.Figure(go.Indicator(
-            mode = "gauge+number",
-            value = risk_score * 100,
+            mode = "gauge+number+delta",
+            value = prediction * 100,
             domain = {'x': [0, 1], 'y': [0, 1]},
             title = {'text': "Risk Score"},
+            delta = {'reference': 50, 'increasing': {'color': "red"}, 'decreasing': {'color': "green"}},
             gauge = {
                 'axis': {'range': [0, 100]},
-                'bar': {'color': "darkred" if risk_score > 0.5 else "darkgreen"},
+                'bar': {'color': "darkred" if prediction > 0.5 else "darkgreen"},
                 'steps': [
                     {'range': [0, 30], 'color': "lightgreen"},
                     {'range': [30, 60], 'color': "yellow"},
                     {'range': [60, 100], 'color': "lightcoral"}
                 ],
-                'threshold': {
-                    'line': {'color': "red", 'width': 4},
-                    'thickness': 0.75,
-                    'value': 50
-                }
+                'threshold': {'line': {'color': "red", 'width': 4}, 'thickness': 0.75, 'value': 50}
             }
         ))
         fig.update_layout(height=300)
         st.plotly_chart(fig, use_container_width=True)
+        
+        # Show input summary
+        with st.expander("📋 Input Summary"):
+            st.json(customer_data)
 
 # ==================== TAB 3: MODEL INSIGHTS ====================
 with tab3:
-    st.markdown("## 📈 Model Performance & Insights")
+    st.markdown("## 📈 Model Performance")
     
     col1, col2 = st.columns(2)
     
     with col1:
         st.markdown("### Feature Importance")
-        # Create feature importance chart
         features = ['PAY_0', 'PAY_2', 'LIMIT_BAL', 'PAY_AMT1', 'BILL_AMT1', 'AGE', 'PAY_3', 'UTILIZATION']
         importance = [0.25, 0.15, 0.12, 0.10, 0.09, 0.08, 0.07, 0.06]
-        
-        fig = px.bar(
-            x=importance, y=features, orientation='h',
-            color=importance, color_continuous_scale='Viridis',
-            labels={'x': 'Importance', 'y': 'Feature'}
-        )
+        fig = px.bar(x=importance, y=features, orientation='h', color=importance, 
+                     color_continuous_scale='Viridis')
         fig.update_layout(height=400, showlegend=False)
         st.plotly_chart(fig, use_container_width=True)
     
     with col2:
         st.markdown("### Model Metrics")
-        metrics_df = pd.DataFrame({
-            'Metric': ['AUC-ROC', 'Accuracy', 'Precision', 'Recall', 'F1-Score'],
-            'Score': [0.78, 0.76, 0.47, 0.63, 0.54]
-        })
-        
-        fig = px.bar(
-            metrics_df, x='Metric', y='Score',
-            color='Score', color_continuous_scale='Blues',
-            text='Score'
-        )
-        fig.update_traces(texttemplate='%{text:.2f}', textposition='outside')
-        fig.update_layout(height=400, showlegend=False)
+        fig = go.Figure(go.Bar(
+            x=['AUC', 'Accuracy', 'Precision', 'Recall', 'F1'],
+            y=[0.78, 0.76, 0.47, 0.63, 0.54],
+            marker_color=['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe'],
+            text=[0.78, 0.76, 0.47, 0.63, 0.54],
+            textposition='outside'
+        ))
+        fig.update_layout(height=400, yaxis_range=[0, 1])
         st.plotly_chart(fig, use_container_width=True)
-    
-    # ROC Curve
-    st.markdown("### ROC Curve")
-    fpr = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-    tpr = [0, 0.45, 0.62, 0.72, 0.78, 0.82, 0.86, 0.90, 0.94, 0.97, 1.0]
-    
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=fpr, y=tpr, mode='lines', name='XGBoost (AUC=0.78)', 
-                             line=dict(color='#667eea', width=3)))
-    fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='Random', 
-                             line=dict(color='gray', dash='dash')))
-    fig.update_layout(
-        xaxis_title='False Positive Rate',
-        yaxis_title='True Positive Rate',
-        height=400
-    )
-    st.plotly_chart(fig, use_container_width=True)
 
 # ==================== TAB 4: INFRASTRUCTURE ====================
 with tab4:
-    st.markdown("## 🖥️ Kubernetes Infrastructure Status")
+    st.markdown("## 🖥️ Kubernetes Infrastructure")
     
-    # Namespace cards
     col1, col2, col3 = st.columns(3)
     
     with col1:
         st.markdown("""
         <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1.5rem; border-radius: 1rem; color: white;'>
             <h3>ml-credit-risk</h3>
-            <p>🟢 2 pods running</p>
-            <ul>
-                <li>credit-risk-model-predictor</li>
-                <li>monitoring-service</li>
-            </ul>
+            <p>🟢 3 pods</p>
+            <small>• credit-risk-model-predictor<br>• monitoring-service<br>• mlops-dashboard</small>
         </div>
         """, unsafe_allow_html=True)
     
@@ -303,12 +316,8 @@ with tab4:
         st.markdown("""
         <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 1.5rem; border-radius: 1rem; color: white;'>
             <h3>kubeflow</h3>
-            <p>🟢 13 pods running</p>
-            <ul>
-                <li>ml-pipeline</li>
-                <li>minio</li>
-                <li>mysql</li>
-            </ul>
+            <p>🟢 13 pods</p>
+            <small>• ml-pipeline<br>• minio<br>• mysql</small>
         </div>
         """, unsafe_allow_html=True)
     
@@ -316,54 +325,11 @@ with tab4:
         st.markdown("""
         <div style='background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding: 1.5rem; border-radius: 1rem; color: white;'>
             <h3>monitoring</h3>
-            <p>🟢 8 pods running</p>
-            <ul>
-                <li>prometheus</li>
-                <li>grafana</li>
-                <li>alertmanager</li>
-            </ul>
+            <p>🟢 8 pods</p>
+            <small>• prometheus<br>• grafana<br>• alertmanager</small>
         </div>
         """, unsafe_allow_html=True)
-    
-    st.markdown("---")
-    
-    # Services table
-    st.markdown("### 🔗 Exposed Services")
-    services_df = pd.DataFrame({
-        'Service': ['KServe Predictor', 'Grafana', 'Prometheus', 'Monitoring Service'],
-        'Namespace': ['ml-credit-risk', 'monitoring', 'monitoring', 'ml-credit-risk'],
-        'Port': ['80', '3001', '9090', '8000'],
-        'Status': ['✅ Running', '✅ Running', '✅ Running', '✅ Running']
-    })
-    st.dataframe(services_df, use_container_width=True, hide_index=True)
-    
-    # Deployment timeline
-    st.markdown("### 📅 Deployment Timeline")
-    timeline_df = pd.DataFrame({
-        'Phase': ['Infrastructure', 'ML Pipeline', 'Model Serving', 'Monitoring', 'CI/CD'],
-        'Status': ['Complete', 'Complete', 'Complete', 'Complete', 'Complete'],
-        'Duration': ['2 hours', '3 hours', '2 hours', '2 hours', '1 hour']
-    })
-    
-    fig = px.timeline(
-        pd.DataFrame({
-            'Task': ['Infrastructure', 'ML Pipeline', 'Model Serving', 'Monitoring', 'CI/CD'],
-            'Start': pd.to_datetime(['2026-01-08 09:00', '2026-01-08 11:00', '2026-01-08 14:00', 
-                                     '2026-01-08 16:00', '2026-01-08 18:00']),
-            'Finish': pd.to_datetime(['2026-01-08 11:00', '2026-01-08 14:00', '2026-01-08 16:00',
-                                      '2026-01-08 18:00', '2026-01-08 19:00']),
-            'Phase': ['Phase 0', 'Phase 2', 'Phase 3', 'Phase 4', 'Phase 5']
-        }),
-        x_start='Start', x_end='Finish', y='Task', color='Phase'
-    )
-    fig.update_layout(height=300)
-    st.plotly_chart(fig, use_container_width=True)
 
 # Footer
 st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: gray;'>
-    <p>🏦 Credit Risk MLOps Platform | Built with Kubeflow, KServe, Prometheus & Grafana</p>
-    <p>📦 <a href='https://github.com/Shrinet82/ML-OPS'>GitHub Repository</a></p>
-</div>
-""", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: gray;'>🏦 Credit Risk MLOps | <a href='https://github.com/Shrinet82/ML-OPS'>GitHub</a></p>", unsafe_allow_html=True)
