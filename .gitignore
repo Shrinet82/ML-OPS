@@ -16,20 +16,6 @@ build/
 
 # Jupyter
 .ipynb_checkpoints/
-*.ipynb
-
-# MLflow
-mlruns/
-mlflow.db
-
-# Model artifacts (keep structure, ignore large files)
-*.pkl
-models/*.json
-!models/feature_names.txt
-
-# Data files (kept in DVC)
-data/*.csv
-data/*.xls
 
 # IDE
 .vscode/
@@ -45,3 +31,6 @@ Thumbs.db
 .env
 .env.local
 *.log
+
+# Pytest cache
+.pytest_cache/

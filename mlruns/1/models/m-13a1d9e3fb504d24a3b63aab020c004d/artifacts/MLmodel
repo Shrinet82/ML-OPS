@@ -1,0 +1,22 @@
+artifact_path: /home/shrinet82/ML-OPS/mlruns/1/models/m-13a1d9e3fb504d24a3b63aab020c004d/artifacts
+flavors:
+  python_function:
+    data: model.ubj
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.xgboost
+    python_version: 3.10.12
+  xgboost:
+    code: null
+    data: model.ubj
+    model_class: xgboost.sklearn.XGBClassifier
+    model_format: ubj
+    xgb_version: 3.1.2
+mlflow_version: 3.8.1
+model_id: m-13a1d9e3fb504d24a3b63aab020c004d
+model_size_bytes: 730742
+model_uuid: m-13a1d9e3fb504d24a3b63aab020c004d
+prompts: null
+run_id: 30bcf1e594b04a6ca94ba928a8558169
+utc_time_created: '2026-01-08 07:54:43.626280'
