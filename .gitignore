@@ -34,3 +34,7 @@ Thumbs.db
 
 # Pytest cache
 .pytest_cache/
+
+# Model binaries and local MLflow tracking DB (regenerate with src/train_baseline.py)
+*.pkl
+mlflow.db
